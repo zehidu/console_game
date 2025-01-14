@@ -921,135 +921,106 @@ function getMousePosition(event) {
 
 // Preview and Export Functions
 function showPreview() {
-    const previewModal = document.getElementById('previewModal');
-    const previewSvg = document.getElementById('previewSvg');
+    // Create preview window
+    const previewWindow = window.open('', 'Layout Preview', 'width=800,height=600');
+    const previewDoc = previewWindow.document;
     
-    // Clear previous preview
-    while (previewSvg.firstChild) {
-        previewSvg.removeChild(previewSvg.firstChild);
+    // Set up preview document
+    previewDoc.title = 'Layout Preview';
+    previewDoc.body.style.margin = '0';
+    previewDoc.body.style.padding = '20px';
+    previewDoc.body.style.backgroundColor = '#f0f0f0';
+    
+    // Add title
+    const title = previewDoc.createElement('h1');
+    title.textContent = 'Layout Preview';
+    title.style.fontFamily = 'Arial, sans-serif';
+    title.style.marginBottom = '20px';
+    previewDoc.body.appendChild(title);
+    
+    // Create new SVG for preview
+    const previewSvg = document.createElementNS(SVG_NS, 'svg');
+    previewSvg.setAttribute('width', '100%');
+    previewSvg.setAttribute('height', '100%');
+    previewSvg.setAttribute('viewBox', '0 0 40000 30000');
+    previewSvg.style.backgroundColor = 'white';
+    previewSvg.style.border = '1px solid #ccc';
+    previewDoc.body.appendChild(previewSvg);
+    
+    // Layer 1: Frame (background)
+    const frame = svg.querySelector('.fil0.str0');
+    if (frame) {
+        const frameClone = frame.cloneNode(true);
+        frameClone.setAttribute('fill', 'none');
+        frameClone.setAttribute('stroke', 'black');
+        frameClone.setAttribute('stroke-width', '141.11');
+        previewSvg.appendChild(frameClone);
     }
     
-    // Set viewBox to match main SVG
-    previewSvg.setAttribute('viewBox', '0 0 40000 30000');
-    previewSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    // Layer 2: Inner boundary
+    const innerBoundary = svg.querySelector('.inner-stroke');
+    if (innerBoundary) {
+        const boundaryClone = innerBoundary.cloneNode(true);
+        boundaryClone.setAttribute('stroke', 'red');
+        boundaryClone.setAttribute('stroke-width', '141.11');
+        boundaryClone.setAttribute('fill', 'none');
+        previewSvg.appendChild(boundaryClone);
+    }
     
-    // Add style definitions
-    const style = document.createElementNS(SVG_NS, 'style');
-    style.textContent = `
-        .preview-frame { stroke: black; stroke-width: 141.11; fill: none; }
-        .preview-inner { stroke: red; stroke-width: 141.11; fill: none; }
-        .preview-outline { stroke: black; stroke-width: 141.11; fill: none; }
-        .preview-joystick { stroke: black; stroke-width: 141.11; fill: none; }
-    `;
-    previewSvg.appendChild(style);
+    // Get all buttons
+    const buttons = Array.from(svg.querySelectorAll('[data-type="button"]'));
     
-    // Copy and style the frame
-    const frame = document.querySelector('.fil0.str0').cloneNode(true);
-    frame.setAttribute('class', 'preview-frame');
-    previewSvg.appendChild(frame);
-    
-    // Copy and style the inner boundary
-    const innerFrame = document.querySelector('.inner-stroke').cloneNode(true);
-    innerFrame.setAttribute('class', 'preview-inner');
-    previewSvg.appendChild(innerFrame);
-    
-    // Generate clean merged outline for buttons
-    const buttons = components.filter(c => c.getAttribute('data-type') === 'button');
+    // Layer 3: Merged safety margin outline (behind circles)
     if (buttons.length > 0) {
-        const mergedGroup = generateCleanMergedPath();
-        if (mergedGroup) {
-            // Apply the preview-outline class to all paths in the group
-            Array.from(mergedGroup.childNodes).forEach(path => {
-                path.setAttribute('class', 'preview-outline');
-            });
-            previewSvg.appendChild(mergedGroup);
+        const mergedPath = generateCleanMergedPath();
+        if (mergedPath) {
+            mergedPath.setAttribute('fill', 'none');
+            mergedPath.setAttribute('stroke', 'black');
+            mergedPath.setAttribute('stroke-width', '141.11');
+            previewSvg.appendChild(mergedPath);
         }
     }
     
-    // Copy and style joysticks
-    const joysticks = components.filter(c => c.getAttribute('data-type') === 'joystick');
+    // Layer 4: Original button circles (on top)
+    buttons.forEach(button => {
+        // Get only the inner circle (not the margin circle)
+        const circle = button.querySelector('circle:not(.margin-circle)');
+        if (circle) {
+            const circleClone = circle.cloneNode(true);
+            circleClone.setAttribute('fill', 'none');
+            circleClone.setAttribute('stroke', 'black');
+            circleClone.setAttribute('stroke-width', '141.11');
+            previewSvg.appendChild(circleClone);
+        }
+    });
+    
+    // Layer 5: Joysticks
+    const joysticks = Array.from(svg.querySelectorAll('[data-type="joystick"]'));
     joysticks.forEach(joystick => {
         const joystickClone = joystick.cloneNode(true);
-        joystickClone.setAttribute('class', 'preview-joystick');
+        joystickClone.querySelectorAll('*').forEach(element => {
+            if (element.tagName.toLowerCase() === 'rect' || element.tagName.toLowerCase() === 'circle') {
+                element.setAttribute('fill', 'none');
+                element.setAttribute('stroke', 'black');
+                element.setAttribute('stroke-width', '141.11');
+            }
+        });
         previewSvg.appendChild(joystickClone);
     });
     
-    // Show the modal
-    previewModal.style.display = 'flex';
-}
-
-function generateCleanMergedPath() {
-    if (components.length === 0) return null;
-
-    // Create paths for ClipperJS
-    const clipPaths = [];
-    const scale = 1000; // Higher scale for better precision
-    
-    // Only process buttons
-    const buttons = components.filter(c => c.getAttribute('data-type') === 'button');
-    if (buttons.length === 0) return null;
-    
-    buttons.forEach(component => {
-        const circle = component.querySelector('circle:not(.margin-circle)');
-        if (!circle) return;
-
-        const cx = parseFloat(circle.getAttribute('cx'));
-        const cy = parseFloat(circle.getAttribute('cy'));
-        const r = parseFloat(circle.getAttribute('r')) + SAFETY_MARGIN;
-
-        // Create points for a circle approximation
-        const points = [];
-        const numPoints = 180; // Increased point count for smoother circles
-        for (let i = 0; i < numPoints; i++) {
-            const angle = (i * Math.PI * 2) / numPoints;
-            points.push({
-                X: Math.round((cx + Math.cos(angle) * r) * scale),
-                Y: Math.round((cy + Math.sin(angle) * r) * scale)
-            });
+    // Style preview window
+    const style = previewDoc.createElement('style');
+    style.textContent = `
+        body {
+            font-family: Arial, sans-serif;
         }
-        clipPaths.push(points);
-    });
-
-    // Set up ClipperJS
-    const cpr = new ClipperLib.Clipper();
-    const solution = new ClipperLib.Paths();
-    
-    // Perform union operation
-    cpr.AddPaths(clipPaths, ClipperLib.PolyType.ptSubject, true);
-    cpr.Execute(ClipperLib.ClipType.ctUnion, solution, 
-               ClipperLib.PolyFillType.pftNonZero, 
-               ClipperLib.PolyFillType.pftNonZero);
-    
-    // Calculate minimum area threshold (based on smallest button's area)
-    const minButtonRadius = Math.min(BUTTON_24MM, BUTTON_30MM) / 2;
-    const minButtonArea = Math.PI * minButtonRadius * minButtonRadius * scale * scale * 0.25; // 25% of smallest button area
-    
-    // Create a group element to hold all paths
-    const group = document.createElementNS(SVG_NS, 'g');
-    
-    // Process all significant paths
-    solution.forEach(path => {
-        const area = Math.abs(ClipperLib.Clipper.Area(path));
-        
-        // Skip tiny artifacts
-        if (area < minButtonArea) return;
-        
-        // Convert path to SVG format
-        let pathData = '';
-        path.forEach((point, index) => {
-            const x = point.X / scale;
-            const y = point.Y / scale;
-            pathData += index === 0 ? `M ${x},${y} ` : `L ${x},${y} `;
-        });
-        pathData += 'Z';
-
-        // Create path element
-        const pathElement = document.createElementNS(SVG_NS, 'path');
-        pathElement.setAttribute('d', pathData);
-        group.appendChild(pathElement);
-    });
-    
-    return group.childNodes.length > 0 ? group : null;
+        svg {
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    `;
+    previewDoc.head.appendChild(style);
 }
 
 function closePreview() {
@@ -1089,3 +1060,77 @@ svg.addEventListener('click', function(e) {
         if (selected) selected.classList.remove('selected');
     }
 });
+
+function generateCleanMergedPath() {
+    if (components.length === 0) return null;
+
+    // Create paths for ClipperJS
+    const clipPaths = [];
+    const scale = 1000; // Higher scale for better precision
+    
+    // Only process buttons
+    const buttons = components.filter(c => c.getAttribute('data-type') === 'button');
+    if (buttons.length === 0) return null;
+    
+    buttons.forEach(component => {
+        const circle = component.querySelector('circle:not(.margin-circle)');
+        if (!circle) return;
+
+        const cx = parseFloat(circle.getAttribute('cx'));
+        const cy = parseFloat(circle.getAttribute('cy'));
+        const r = parseFloat(circle.getAttribute('r')) + SAFETY_MARGIN;
+
+        // Create points for a circle approximation
+        const points = [];
+        const numPoints = 180; // Increased point count for smoother circles
+        for (let i = 0; i < numPoints; i++) {
+            const angle = (i / numPoints) * Math.PI * 2;
+            points.push({
+                X: Math.round((cx + Math.cos(angle) * r) * scale),
+                Y: Math.round((cy + Math.sin(angle) * r) * scale)
+            });
+        }
+
+        clipPaths.push(points);
+    });
+
+    // Set up ClipperJS
+    const cpr = new ClipperLib.Clipper();
+    const solution = new ClipperLib.Paths();
+    
+    // Perform union operation
+    cpr.AddPaths(clipPaths, ClipperLib.PolyType.ptSubject, true);
+    cpr.Execute(ClipperLib.ClipType.ctUnion, solution, 
+               ClipperLib.PolyFillType.pftNonZero, 
+               ClipperLib.PolyFillType.pftNonZero);
+    
+    // Calculate minimum area threshold (based on smallest button's area)
+    const minButtonRadius = Math.min(BUTTON_24MM, BUTTON_30MM) / 2;
+    const minButtonArea = Math.PI * minButtonRadius * minButtonRadius * scale * scale * 0.25; // 25% of smallest button area
+    
+    // Create SVG path from the solution
+    let pathData = '';
+    solution.forEach(path => {
+        const area = Math.abs(ClipperLib.Clipper.Area(path));
+        
+        // Skip tiny artifacts
+        if (area < minButtonArea) return;
+        
+        // Start a new subpath
+        path.forEach((point, index) => {
+            const x = point.X / scale;
+            const y = point.Y / scale;
+            pathData += index === 0 ? `M ${x},${y} ` : `L ${x},${y} `;
+        });
+        pathData += 'Z ';
+    });
+    
+    // If we have a valid path, create and return the path element
+    if (pathData) {
+        const pathElement = document.createElementNS(SVG_NS, 'path');
+        pathElement.setAttribute('d', pathData);
+        return pathElement;
+    }
+    
+    return null;
+}
