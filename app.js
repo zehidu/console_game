@@ -1008,6 +1008,43 @@ function showPreview() {
         previewSvg.appendChild(joystickClone);
     });
     
+    // Create button wrapper
+    const buttonWrapper = previewDoc.createElement('div');
+    buttonWrapper.style.marginTop = '20px';
+    buttonWrapper.style.textAlign = 'center';
+    previewDoc.body.appendChild(buttonWrapper);
+    
+    // Create Download SVG button
+    const downloadBtn = previewDoc.createElement('button');
+    downloadBtn.textContent = 'Download SVG';
+    downloadBtn.style.marginRight = '10px';
+    downloadBtn.style.padding = '8px 16px';
+    downloadBtn.style.fontSize = '14px';
+    downloadBtn.style.cursor = 'pointer';
+    downloadBtn.onclick = function() {
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(previewSvg);
+        const blob = new Blob([svgString], {type: 'image/svg+xml'});
+        const url = URL.createObjectURL(blob);
+        const downloadLink = previewDoc.createElement('a');
+        downloadLink.href = url;
+        downloadLink.download = 'joystick-layout.svg';
+        downloadLink.click();
+        URL.revokeObjectURL(url);
+    };
+    buttonWrapper.appendChild(downloadBtn);
+    
+    // Create Close button
+    const closeBtn = previewDoc.createElement('button');
+    closeBtn.textContent = 'Close Preview';
+    closeBtn.style.padding = '8px 16px';
+    closeBtn.style.fontSize = '14px';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.onclick = function() {
+        previewWindow.close();
+    };
+    buttonWrapper.appendChild(closeBtn);
+    
     // Style preview window
     const style = previewDoc.createElement('style');
     style.textContent = `
@@ -1018,6 +1055,16 @@ function showPreview() {
             max-width: 100%;
             height: auto;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #0056b3;
         }
     `;
     previewDoc.head.appendChild(style);
