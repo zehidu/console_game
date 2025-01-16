@@ -81,11 +81,39 @@ button.secondary:hover {
 .selected {
     stroke: #007bff !important;
     stroke-width: 2px;
+    filter: drop-shadow(0 0 3px rgba(0, 123, 255, 0.7));
+}
+
+/* Highlight all circles of the selected component */
+.selected .margin-circle {
+    stroke: #ff4081 !important;  /* Bright pink */
+    stroke-width: 0.5 !important;
+    fill: rgba(255, 64, 129, 0.1);  /* Semi-transparent pink */
+}
+
+.selected .outer-margin-circle {
+    stroke: #2196f3 !important;  /* Bright blue */
+    stroke-width: 1.5 !important;
+    fill: rgba(33, 150, 243, 0.1);  /* Semi-transparent blue */
+}
+
+.selected circle:not(.margin-circle):not(.outer-margin-circle) {
+    stroke: black !important;
+    stroke-width: 1.5 !important;
+    fill: rgba(0, 0, 0, 0.1);  /* Semi-transparent black */
 }
 
 .margin-circle {
     fill: none;
-    stroke: none;
+    stroke: rgb(255, 0, 0);
+    stroke-width: 0.2;
+    pointer-events: none;
+}
+
+.outer-margin-circle {
+    fill: none;
+    stroke: blue;
+    stroke-width: 1;
     pointer-events: none;
 }
 
@@ -120,4 +148,35 @@ button.secondary:hover {
     stroke: black;
     stroke-width: 141.11;
     pointer-events: none;
+}
+
+/* Selection box styles */
+.selection-box {
+    fill: rgba(0, 123, 255, 0.1);
+    stroke: #007bff;
+    stroke-width: 1;
+    pointer-events: none;
+}
+
+/* Multi-select styles */
+.multi-selected {
+    filter: drop-shadow(0 0 3px rgba(0, 123, 255, 0.7));
+}
+
+.multi-selected .margin-circle {
+    stroke: #ff4081;
+    stroke-width: 0.5;
+    fill: rgba(255, 64, 129, 0.1);
+}
+
+.multi-selected .outer-margin-circle {
+    stroke: #2196f3;
+    stroke-width: 1.5;
+    fill: rgba(33, 150, 243, 0.1);
+}
+
+.multi-selected circle:not(.margin-circle):not(.outer-margin-circle) {
+    stroke: black;
+    stroke-width: 1.5;
+    fill: rgba(0, 0, 0, 0.1);
 }
