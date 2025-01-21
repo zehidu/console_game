@@ -435,7 +435,12 @@ function checkCollision(component, newX, newY, ignoreComponent = null) {
         
         // Check collision with other components
         for (const other of components) {
-            if (other === component || other === ignoreComponent || other.getAttribute('data-dragging') === 'true') continue;
+            if (other === component || 
+                other === ignoreComponent || 
+                other.getAttribute('data-dragging') === 'true' ||
+                selectedComponents.has(other)) {
+                continue;
+            }
             
             const otherType = other.getAttribute('data-type');
             if (otherType === 'button') {
@@ -459,23 +464,40 @@ function checkCollision(component, newX, newY, ignoreComponent = null) {
     return false;
 }
 
-// Update onDragEnd to clean up data-dragging attributes
 function onDragEnd() {
     if (!isDragging) return;
     
     isDragging = false;
     dragState.isDragging = false;
-    component.classList.remove('dragging');
     
     if (dragState.rafId) {
         cancelAnimationFrame(dragState.rafId);
         dragState.rafId = null;
     }
     
-    // Apply final positions to original components and clean up
+    // Calculate final delta based on mouse position
+    const dx = dragState.lastX - dragState.startX;
+    const dy = dragState.lastY - dragState.startY;
+    
+    // Check for collisions at final position
+    let hasCollision = false;
+    selectedComponents.forEach(comp => {
+        const initialX = parseFloat(comp.dataset.initialX);
+        const initialY = parseFloat(comp.dataset.initialY);
+        const finalX = initialX + dx;
+        const finalY = initialY + dy;
+        
+        if (checkCollision(comp, finalX, finalY)) {
+            hasCollision = true;
+        }
+    });
+    
+    // Apply positions or revert based on collision check
     selectedComponents.forEach(comp => {
         comp.style.opacity = '1';
         comp.removeAttribute('data-dragging');
+        comp.style.transform = '';
+        
         const circle = comp.querySelector('circle:not(.margin-circle):not(.outer-margin-circle)');
         const marginCircle = comp.querySelector('.margin-circle');
         const outerMarginCircle = comp.querySelector('.outer-margin-circle');
@@ -483,8 +505,10 @@ function onDragEnd() {
         if (circle && marginCircle && outerMarginCircle) {
             const initialX = parseFloat(comp.dataset.initialX);
             const initialY = parseFloat(comp.dataset.initialY);
-            const finalX = initialX + dragState.currentTransform.x;
-            const finalY = initialY + dragState.currentTransform.y;
+            
+            // Set final or initial position based on collision check
+            const finalX = hasCollision ? initialX : initialX + dx;
+            const finalY = hasCollision ? initialY : initialY + dy;
             
             circle.setAttribute('cx', finalX);
             circle.setAttribute('cy', finalY);
@@ -492,20 +516,25 @@ function onDragEnd() {
             marginCircle.setAttribute('cy', finalY);
             outerMarginCircle.setAttribute('cx', finalX);
             outerMarginCircle.setAttribute('cy', finalY);
+            
+            // Clean up temporary attributes
+            comp.removeAttribute('data-initialX');
+            comp.removeAttribute('data-initialY');
         }
     });
     
-    // Remove drag group and update merged outline
+    // Remove drag group
     if (dragGroup) {
         svg.removeChild(dragGroup);
         dragGroup = null;
     }
     
-    // Ensure selection state is correct
+    // Ensure selection state is correct and create new merged outline
     selectedComponents.forEach(comp => {
         comp.classList.add('multi-selected');
     });
     
+    // Create fresh merged outline
     forceRedrawMergedOutline();
 }
 
@@ -697,77 +726,8 @@ function checkCollision(component, newX, newY) {
             if (distance <= marginRadius + otherRadius + 0.1) {
                 return true;
             }
-        } else {
-            // Handle joystick collision
-            const joystickX = parseFloat(other.getAttribute('x'));
-            const joystickY = parseFloat(other.getAttribute('y'));
-            const dx = newX - joystickX;
-            const dy = newY - joystickY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            if (distance < marginRadius + 2000) { // 2000 = 20mm * 100 units/mm
-                return true;
-            }
         }
     }
-    
-    return false;
-}
-
-function checkJoystickCollision(excludeComponent, x, y) {
-    // Use separate margins for different types of collisions
-    const buttonMargin = JOYSTICK.MARGIN + 500; // Extra space from buttons
-    const joystickMargin = JOYSTICK.MARGIN;     // Less space needed between joysticks
-    
-    // Check collision with each component
-    for (const component of components) {
-        if (component === excludeComponent) continue;
-        
-        if (component.getAttribute('data-type') === 'button') {
-            const circle = component.querySelector('circle:not(.margin-circle):not(.outer-margin-circle)');
-            const cx = parseFloat(circle.getAttribute('cx'));
-            const cy = parseFloat(circle.getAttribute('cy'));
-            const r = parseFloat(circle.getAttribute('r')) + buttonMargin;
-            
-            // Check joystick corners against button
-            const corners = [
-                { x, y },
-                { x: x + JOYSTICK.WIDTH, y },
-                { x: x + JOYSTICK.WIDTH, y: y + JOYSTICK.HEIGHT },
-                { x, y: y + JOYSTICK.HEIGHT }
-            ];
-            
-            // If any corner is too close to button center, collision detected
-            for (const corner of corners) {
-                const dx = corner.x - cx;
-                const dy = corner.y - cy;
-                if (Math.sqrt(dx * dx + dy * dy) <= r) {
-                    return true;
-                }
-            }
-            
-            // Check if button center is inside expanded joystick area
-            if (cx >= x - buttonMargin && cx <= x + JOYSTICK.WIDTH + buttonMargin && 
-                cy >= y - buttonMargin && cy <= y + JOYSTICK.HEIGHT + buttonMargin) {
-                return true;
-            }
-        } else if (component.getAttribute('data-type') === 'joystick') {
-            const rect = component.querySelector('rect');
-            if (!rect) continue;
-            
-            const otherX = parseFloat(rect.getAttribute('x'));
-            const otherY = parseFloat(rect.getAttribute('y'));
-            
-            // Rectangle overlap check with reduced margin for joysticks
-            if (!(x + JOYSTICK.WIDTH + joystickMargin < otherX - joystickMargin || 
-                  x - joystickMargin > otherX + JOYSTICK.WIDTH + joystickMargin || 
-                  y + JOYSTICK.HEIGHT + joystickMargin < otherY - joystickMargin || 
-                  y - joystickMargin > otherY + JOYSTICK.HEIGHT + joystickMargin)) {
-                return true;
-            }
-        }
-    }
-    
     return false;
 }
 
@@ -1061,16 +1021,19 @@ function isValidJoystickPosition(x, y) {
 }
 
 function isValidPosition(x, y, radius) {
+    // Create a temporary test component
     const testButton = document.createElementNS(SVG_NS, 'g');
     testButton.setAttribute('data-type', 'button');
     
     const testCircle = document.createElementNS(SVG_NS, 'circle');
+    testCircle.setAttribute('class', 'margin-circle');
     testCircle.setAttribute('cx', x);
     testCircle.setAttribute('cy', y);
     testCircle.setAttribute('r', radius);
     testButton.appendChild(testCircle);
     
-    return isPointInsidePath(x, y) && !checkCollision(testButton, x, y);
+    // Check if point is inside the boundary path and no collisions with existing components
+    return !checkCollision(testButton, x, y);
 }
 
 // Helper function to remove all types of outlines
@@ -1382,146 +1345,173 @@ function generateCleanMergedPath(buttons) {
     return null;
 }
 
-function addButton(size) {
-    console.log('Creating button with size:', size);
+function updateMergedOutline() {
+    removeAllOutlines();
+    const buttons = components.filter(c => c.getAttribute('data-type') === 'button');
+    if (buttons.length === 0) return;
     
-    const position = findValidButtonPosition(size);
-    if (!position) {
-        console.error('No valid position found for button');
-        alert('No space available for new button');
-        return;
+    const mergedPath = generateCleanMergedPath(buttons);
+    if (mergedPath) {
+        mergedPath.setAttribute('class', 'merged-path');
+        mergedPath.setAttribute('stroke', 'black');
+        mergedPath.setAttribute('stroke-width', '141.11');
+        mergedPath.setAttribute('fill', 'none');
+        svg.appendChild(mergedPath);
     }
-    
-    const button = document.createElementNS(SVG_NS, 'g');
-    button.setAttribute('class', 'draggable');
-    button.setAttribute('data-type', 'button');
-    button.setAttribute('data-size', size);
-
-    const radius = size / 2;
-    const safetyMargin = size === BUTTON_24MM ? SAFETY_MARGIN_24MM : SAFETY_MARGIN_30MM;
-    const outerMargin = size === BUTTON_24MM ? OUTER_MARGIN_24MM : OUTER_MARGIN_30MM;
-    console.log('Button radius:', radius);
-    
-    // Create the main button circle (innermost)
-    const circle = document.createElementNS(SVG_NS, 'circle');
-    circle.setAttribute('cx', position.x);
-    circle.setAttribute('cy', position.y);
-    // Subtract half of stroke width (70.555 units = 0.70555mm) from radius to account for stroke thickness
-    circle.setAttribute('r', radius - 70.555);
-    circle.setAttribute('stroke', 'black');
-    circle.setAttribute('stroke-width', '141.11');
-    
-    // Create the middle margin circle (for collision detection)
-    const marginCircle = document.createElementNS(SVG_NS, 'circle');
-    marginCircle.setAttribute('class', 'margin-circle');
-    marginCircle.setAttribute('cx', position.x);
-    marginCircle.setAttribute('cy', position.y);
-    marginCircle.setAttribute('r', radius + safetyMargin);
-    
-    // Create the outer margin circle (7.5mm larger than inner circle)
-    const outerMarginCircle = document.createElementNS(SVG_NS, 'circle');
-    outerMarginCircle.setAttribute('class', 'outer-margin-circle');
-    outerMarginCircle.setAttribute('cx', position.x);
-    outerMarginCircle.setAttribute('cy', position.y);
-    outerMarginCircle.setAttribute('r', radius + outerMargin);
-    
-    button.appendChild(marginCircle);        // Add middle circle first (bottom layer)
-    button.appendChild(outerMarginCircle);   // Add outer circle second
-    button.appendChild(circle);              // Add innermost circle last (top layer)
-    svg.appendChild(button);
-    addDragBehavior(button);
-    components.push(button);
-    updateMergedOutline();
-    
-    console.log('Button added successfully with properties:', {
-        size: size,
-        radius: radius,
-        position: position,
-        totalComponents: components.length
-    });
 }
 
-function addJoystick() {
-    const validPosition = findValidJoystickPosition();
+function getComponentRadius(component) {
+    if (!component) return 0;
     
-    if (!validPosition) {
-        alert("No available space for joystick. Please move or delete other components to make room.");
-        return;
+    if (component.getAttribute('data-type') === 'button') {
+        const marginCircle = component.querySelector('.margin-circle');
+        if (!marginCircle) return 0;
+        return parseFloat(marginCircle.getAttribute('r'));
     }
-    
-    const { x, y } = validPosition;
-    
-    // Create joystick group with pointer events enabled
-    const joystickGroup = document.createElementNS(SVG_NS, 'g');
-    joystickGroup.setAttribute('data-type', 'joystick');
-    joystickGroup.setAttribute('class', 'draggable');
-    joystickGroup.setAttribute('pointer-events', 'all');
-    
-    // Create main rectangle with pointer events and minimal fill for interaction
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', x);
-    rect.setAttribute('y', y);
-    rect.setAttribute('width', JOYSTICK.WIDTH);
-    rect.setAttribute('height', JOYSTICK.HEIGHT);
-    rect.setAttribute('rx', JOYSTICK.CORNER_RADIUS);
-    rect.setAttribute('ry', JOYSTICK.CORNER_RADIUS);
-    rect.setAttribute('stroke', 'black');
-    rect.setAttribute('stroke-width', '141.11');
-    rect.setAttribute('fill', 'rgba(255,255,255,0.01)');
-    rect.setAttribute('pointer-events', 'all');
-    
-    // Add mounting holes with pointer events
-    const holeRadius = 300; // 3mm holes
-    const holeMargin = 1000; // 10mm from edges
-    const holes = [
-        { x: x + holeMargin, y: y + holeMargin }, // Top-left
-        { x: x + JOYSTICK.WIDTH - holeMargin, y: y + holeMargin }, // Top-right
-        { x: x + holeMargin, y: y + JOYSTICK.HEIGHT - holeMargin }, // Bottom-left
-        { x: x + JOYSTICK.WIDTH - holeMargin, y: y + JOYSTICK.HEIGHT - holeMargin } // Bottom-right
-    ];
-    
-    // Create center hole (larger for the joystick shaft)
-    const centerHole = document.createElementNS(SVG_NS, 'circle');
-    centerHole.setAttribute('cx', x + JOYSTICK.WIDTH/2);
-    centerHole.setAttribute('cy', y + JOYSTICK.HEIGHT/2);
-    centerHole.setAttribute('r', 1500); // 15mm center hole
-    centerHole.setAttribute('stroke', 'black');
-    centerHole.setAttribute('stroke-width', '141.11');
-    centerHole.setAttribute('fill', 'rgba(255,255,255,0.01)');
-    centerHole.setAttribute('pointer-events', 'all');
-    
-    // Add all holes
-    holes.forEach(pos => {
-        const hole = document.createElementNS(SVG_NS, 'circle');
-        hole.setAttribute('cx', pos.x);
-        hole.setAttribute('cy', pos.y);
-        hole.setAttribute('r', holeRadius);
-        hole.setAttribute('stroke', 'black');
-        hole.setAttribute('stroke-width', '141.11');
-        hole.setAttribute('fill', 'rgba(255,255,255,0.01)');
-        hole.setAttribute('pointer-events', 'all');
-        joystickGroup.appendChild(hole);
-    });
-    
-    // Add elements to group in correct order
-    joystickGroup.appendChild(rect);
-    joystickGroup.appendChild(centerHole);
-    
-    // Add to components and SVG
-    components.push(joystickGroup);
-    svg.appendChild(joystickGroup);
-    
-    // Add drag behavior
-    addDragBehavior(joystickGroup);
-    
-    // Select the new joystick
-    selectElement(joystickGroup);
+    return 0;
 }
 
-// Add this function to remove all merged outlines
-function removeAllMergedOutlines() {
-    const mergedPaths = svg.querySelectorAll('.merged-path');
-    mergedPaths.forEach(path => path.remove());
+function checkCollision(component, newX, newY) {
+    // Get component radius
+    const radius = getComponentRadius(component);
+    if (radius === 0) return false;
+    
+    // Check frame boundaries
+    const innerBoundary = svg.querySelector('.inner-stroke');
+    if (innerBoundary) {
+        const bbox = innerBoundary.getBBox();
+        if (newX - radius < bbox.x || 
+            newX + radius > bbox.x + bbox.width ||
+            newY - radius < bbox.y || 
+            newY + radius > bbox.y + bbox.height) {
+            return true;
+        }
+    }
+
+    // Check against other components
+    let collision = false;
+    components.forEach(other => {
+        if (other === component || selectedComponents.has(other)) return;
+        
+        if (other.getAttribute('data-type') === 'button') {
+            const otherRadius = getComponentRadius(other);
+            if (otherRadius === 0) return;
+            
+            const marginCircle = other.querySelector('.margin-circle');
+            if (!marginCircle) return;
+            
+            const otherX = parseFloat(marginCircle.getAttribute('cx'));
+            const otherY = parseFloat(marginCircle.getAttribute('cy'));
+            
+            const distance = Math.sqrt(
+                Math.pow(newX - otherX, 2) + 
+                Math.pow(newY - otherY, 2)
+            );
+            
+            if (distance < radius + otherRadius) {
+                collision = true;
+            }
+        }
+    });
+    
+    return collision;
+}
+
+function onDragEnd() {
+    if (!isDragging) return;
+    
+    isDragging = false;
+    dragState.isDragging = false;
+    
+    if (dragState.rafId) {
+        cancelAnimationFrame(dragState.rafId);
+        dragState.rafId = null;
+    }
+
+    // Calculate final positions for all selected components
+    const dx = dragState.lastX - dragState.startX;
+    const dy = dragState.lastY - dragState.startY;
+    
+    // Create virtual positions map
+    const virtualPositions = new Map();
+    selectedComponents.forEach(comp => {
+        const initialX = parseFloat(comp.dataset.initialX);
+        const initialY = parseFloat(comp.dataset.initialY);
+        virtualPositions.set(comp, {
+            x: initialX + dx,
+            y: initialY + dy
+        });
+    });
+
+    // Check collisions against non-selected components and other virtual positions
+    let hasCollision = false;
+    selectedComponents.forEach(comp => {
+        const virtual = virtualPositions.get(comp);
+        
+        // Check against non-selected components
+        components.forEach(other => {
+            if (selectedComponents.has(other) || other === comp) return;
+            if (checkCollision(other, virtual.x, virtual.y)) {
+                hasCollision = true;
+            }
+        });
+
+        // Check against other virtual positions
+        selectedComponents.forEach(other => {
+            if (other === comp) return;
+            const otherVirtual = virtualPositions.get(other);
+            const distance = Math.sqrt(
+                Math.pow(virtual.x - otherVirtual.x, 2) + 
+                Math.pow(virtual.y - otherVirtual.y, 2)
+            );
+            const minDistance = getComponentRadius(comp) + getComponentRadius(other);
+            
+            if (distance < minDistance) {
+                hasCollision = true;
+            }
+        });
+    });
+
+    // Update positions or revert
+    selectedComponents.forEach(comp => {
+        comp.style.opacity = '1';
+        comp.removeAttribute('data-dragging');
+        comp.style.transform = '';
+        
+        const virtual = virtualPositions.get(comp);
+        const circle = comp.querySelector('circle:not(.margin-circle):not(.outer-margin-circle)');
+        const marginCircle = comp.querySelector('.margin-circle');
+        const outerMarginCircle = comp.querySelector('.outer-margin-circle');
+
+        if (circle && marginCircle && outerMarginCircle) {
+            const finalX = hasCollision ? parseFloat(comp.dataset.initialX) : virtual.x;
+            const finalY = hasCollision ? parseFloat(comp.dataset.initialY) : virtual.y;
+
+            circle.setAttribute('cx', finalX);
+            circle.setAttribute('cy', finalY);
+            marginCircle.setAttribute('cx', finalX);
+            marginCircle.setAttribute('cy', finalY);
+            outerMarginCircle.setAttribute('cx', finalX);
+            outerMarginCircle.setAttribute('cy', finalY);
+            
+            // Clean up temporary attributes
+            comp.removeAttribute('data-initialX');
+            comp.removeAttribute('data-initialY');
+        }
+    });
+
+    // Remove drag group
+    if (dragGroup) {
+        svg.removeChild(dragGroup);
+        dragGroup = null;
+    }
+
+    // Ensure selection state is correct and create new merged outline
+    selectedComponents.forEach(comp => {
+        comp.classList.add('multi-selected');
+    });
+
+    forceRedrawMergedOutline();
 }
 
 // Update createDragGroup to ensure complete cleanup
@@ -1662,7 +1652,7 @@ function onDragEnd() {
 
 // Update the updateMergedOutline function to be more thorough
 function updateMergedOutline() {
-    removeAllMergedOutlines();
+    removeAllOutlines();
     const buttons = components.filter(c => c.getAttribute('data-type') === 'button');
     if (buttons.length === 0) return;
     
@@ -1674,4 +1664,146 @@ function updateMergedOutline() {
         mergedPath.setAttribute('fill', 'none');
         svg.appendChild(mergedPath);
     }
+}
+
+function addButton(size) {
+    console.log('Creating button with size:', size);
+    
+    const position = findValidButtonPosition(size);
+    if (!position) {
+        console.error('No valid position found for button');
+        alert('No space available for new button');
+        return;
+    }
+    
+    const button = document.createElementNS(SVG_NS, 'g');
+    button.setAttribute('class', 'draggable');
+    button.setAttribute('data-type', 'button');
+    button.setAttribute('data-size', size);
+
+    const radius = size / 2;
+    const safetyMargin = size === BUTTON_24MM ? SAFETY_MARGIN_24MM : SAFETY_MARGIN_30MM;
+    const outerMargin = size === BUTTON_24MM ? OUTER_MARGIN_24MM : OUTER_MARGIN_30MM;
+    console.log('Button radius:', radius);
+    
+    // Create the main button circle (innermost)
+    const circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', position.x);
+    circle.setAttribute('cy', position.y);
+    // Subtract half of stroke width (70.555 units = 0.70555mm) from radius to account for stroke thickness
+    circle.setAttribute('r', radius - 70.555);
+    circle.setAttribute('stroke', 'black');
+    circle.setAttribute('stroke-width', '141.11');
+    
+    // Create the middle margin circle (for collision detection)
+    const marginCircle = document.createElementNS(SVG_NS, 'circle');
+    marginCircle.setAttribute('class', 'margin-circle');
+    marginCircle.setAttribute('cx', position.x);
+    marginCircle.setAttribute('cy', position.y);
+    marginCircle.setAttribute('r', radius + safetyMargin);
+    
+    // Create the outer margin circle (7.5mm larger than inner circle)
+    const outerMarginCircle = document.createElementNS(SVG_NS, 'circle');
+    outerMarginCircle.setAttribute('class', 'outer-margin-circle');
+    outerMarginCircle.setAttribute('cx', position.x);
+    outerMarginCircle.setAttribute('cy', position.y);
+    outerMarginCircle.setAttribute('r', radius + outerMargin);
+    
+    button.appendChild(marginCircle);        // Add middle circle first (bottom layer)
+    button.appendChild(outerMarginCircle);   // Add outer circle second
+    button.appendChild(circle);              // Add innermost circle last (top layer)
+    svg.appendChild(button);
+    addDragBehavior(button);
+    components.push(button);
+    updateMergedOutline();
+    
+    console.log('Button added successfully with properties:', {
+        size: size,
+        radius: radius,
+        position: position,
+        totalComponents: components.length
+    });
+}
+
+function addJoystick() {
+    const validPosition = findValidJoystickPosition();
+    
+    if (!validPosition) {
+        alert("No available space for joystick. Please move or delete other components to make room.");
+        return;
+    }
+    
+    const { x, y } = validPosition;
+    
+    // Create joystick group with pointer events enabled
+    const joystickGroup = document.createElementNS(SVG_NS, 'g');
+    joystickGroup.setAttribute('data-type', 'joystick');
+    joystickGroup.setAttribute('class', 'draggable');
+    joystickGroup.setAttribute('pointer-events', 'all');
+    
+    // Create main rectangle with pointer events and minimal fill for interaction
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', x);
+    rect.setAttribute('y', y);
+    rect.setAttribute('width', JOYSTICK.WIDTH);
+    rect.setAttribute('height', JOYSTICK.HEIGHT);
+    rect.setAttribute('rx', JOYSTICK.CORNER_RADIUS);
+    rect.setAttribute('ry', JOYSTICK.CORNER_RADIUS);
+    rect.setAttribute('stroke', 'black');
+    rect.setAttribute('stroke-width', '141.11');
+    rect.setAttribute('fill', 'rgba(255,255,255,0.01)');
+    rect.setAttribute('pointer-events', 'all');
+    
+    // Add mounting holes with pointer events
+    const holeRadius = 300; // 3mm holes
+    const holeMargin = 1000; // 10mm from edges
+    const holes = [
+        { x: x + holeMargin, y: y + holeMargin }, // Top-left
+        { x: x + JOYSTICK.WIDTH - holeMargin, y: y + holeMargin }, // Top-right
+        { x: x + holeMargin, y: y + JOYSTICK.HEIGHT - holeMargin }, // Bottom-left
+        { x: x + JOYSTICK.WIDTH - holeMargin, y: y + JOYSTICK.HEIGHT - holeMargin } // Bottom-right
+    ];
+    
+    // Create center hole (larger for the joystick shaft)
+    const centerHole = document.createElementNS(SVG_NS, 'circle');
+    centerHole.setAttribute('cx', x + JOYSTICK.WIDTH/2);
+    centerHole.setAttribute('cy', y + JOYSTICK.HEIGHT/2);
+    centerHole.setAttribute('r', 1500); // 15mm center hole
+    centerHole.setAttribute('stroke', 'black');
+    centerHole.setAttribute('stroke-width', '141.11');
+    centerHole.setAttribute('fill', 'rgba(255,255,255,0.01)');
+    centerHole.setAttribute('pointer-events', 'all');
+    
+    // Add all holes
+    holes.forEach(pos => {
+        const hole = document.createElementNS(SVG_NS, 'circle');
+        hole.setAttribute('cx', pos.x);
+        hole.setAttribute('cy', pos.y);
+        hole.setAttribute('r', holeRadius);
+        hole.setAttribute('stroke', 'black');
+        hole.setAttribute('stroke-width', '141.11');
+        hole.setAttribute('fill', 'rgba(255,255,255,0.01)');
+        hole.setAttribute('pointer-events', 'all');
+        joystickGroup.appendChild(hole);
+    });
+    
+    // Add elements to group in correct order
+    joystickGroup.appendChild(rect);
+    joystickGroup.appendChild(centerHole);
+    
+    // Add to components and SVG
+    components.push(joystickGroup);
+    svg.appendChild(joystickGroup);
+    
+    // Add drag behavior
+    addDragBehavior(joystickGroup);
+    
+    // Select the new joystick
+    selectElement(joystickGroup);
+}
+
+// Add this function to remove all merged outlines
+function removeAllMergedOutlines() {
+    const mergedPaths = svg.querySelectorAll('.merged-path');
+    mergedPaths.forEach(path => path.remove());
 }
