@@ -1311,31 +1311,23 @@ function generateCleanMergedPath(buttons) {
     const minButtonRadius = Math.min(BUTTON_24MM, BUTTON_30MM) / 2;
     const minButtonArea = Math.PI * minButtonRadius * minButtonRadius * scale * scale;
     
-    // Find the largest path by area (this will be our main outline)
-    let maxArea = 0;
-    let mainPath = null;
-    solution.forEach(path => {
+    // Keep all valid paths (above minimum area)
+    const validPaths = solution.filter(path => {
         const area = Math.abs(ClipperLib.Clipper.Area(path));
-        
-        // Skip tiny artifacts
-        if (area < minButtonArea) return;
-        
-        // Update main path if this one is larger
-        if (area > maxArea) {
-            maxArea = area;
-            mainPath = path;
-        }
+        return area >= minButtonArea;
     });
     
-    // Only use the main path (largest area) to avoid islands
-    if (mainPath) {
+    if (validPaths.length > 0) {
+        // Create a single path element with all valid paths
         let pathData = '';
-        mainPath.forEach((point, index) => {
-            const x = point.X / scale;
-            const y = point.Y / scale;
-            pathData += index === 0 ? `M ${x},${y} ` : `L ${x},${y} `;
+        validPaths.forEach(path => {
+            path.forEach((point, index) => {
+                const x = point.X / scale;
+                const y = point.Y / scale;
+                pathData += index === 0 ? `M ${x},${y} ` : `L ${x},${y} `;
+            });
+            pathData += 'Z '; // Close each subpath
         });
-        pathData += 'Z';
         
         const pathElement = document.createElementNS(SVG_NS, 'path');
         pathElement.setAttribute('d', pathData);
